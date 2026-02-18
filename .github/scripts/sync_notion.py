@@ -115,7 +115,8 @@ class ObsidianToNotionSync:
     def upload_image_to_notion(self, image_path: str) -> Optional[str]:
         """上传图片到 Notion
 
-        目前使用 GitHub raw URL 作为外部图片
+        使用 GitHub Raw URL 作为外部图片
+        需要设置环境变量: GITHUB_REPO (格式: username/repo)
         """
         try:
             print(f"  [Image] Processing: {Path(image_path).name}")
@@ -126,13 +127,20 @@ class ObsidianToNotionSync:
             except ValueError:
                 rel_path = Path(image_path).name
 
-            # 使用 GitHub raw URL
-            # 需要知道仓库信息，这里暂时返回 None
-            # TODO: 实现图片上传到外部服务
-            print(f"  [Info] Image path: {rel_path}")
-            print(f"  [Info] Image upload not yet implemented - using placeholder")
+            # 获取 GitHub 仓库信息（从环境变量或默认值）
+            github_repo = os.environ.get('GITHUB_REPO', 'alon211/obsidian_public')
+            github_branch = os.environ.get('GITHUB_BRANCH', 'main')
 
-            return None
+            # 转换为 GitHub Raw URL
+            # 将反斜杠转换为正斜杠，URL 编码中文字符
+            rel_path_str = str(rel_path).replace('\\', '/')
+            from urllib.parse import quote
+            rel_path_encoded = quote(rel_path_str.encode('utf-8'))
+
+            github_raw_url = f"https://raw.githubusercontent.com/{github_repo}/{github_branch}/{rel_path_encoded}"
+
+            print(f"  [Image] GitHub URL: {github_raw_url[:80]}...")
+            return github_raw_url
 
         except Exception as e:
             print(f"  [Error] Failed to process image: {e}")

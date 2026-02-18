@@ -28,8 +28,12 @@ jobs:
           NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
           NOTION_DATABASE_ID: ${{ secrets.NOTION_DATABASE_ID }}
           GITHUB_WORKSPACE: ${{ github.workspace }}
+          GITHUB_REPO: alon211/obsidian_public
+          GITHUB_BRANCH: main
         run: |
           echo "GITHUB_WORKSPACE=$GITHUB_WORKSPACE"
           echo "NOTION_TOKEN length: ${#NOTION_TOKEN}"
           echo "NOTION_DATABASE_ID: $NOTION_DATABASE_ID"
+          echo "GITHUB_REPO=$GITHUB_REPO"
+          echo "GITHUB_BRANCH=$GITHUB_BRANCH"
           python3 .github/scripts/sync_notion.py
