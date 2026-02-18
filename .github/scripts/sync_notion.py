@@ -507,7 +507,7 @@ class ObsidianToNotionSync:
                                     blocks.append({
                                         "type": "paragraph",
                                         "paragraph": {
-                                            "rich_text": [{"type": "text", "text": {"content": f"[📷 {image_name}]"}]
+                                            "rich_text": [{"type": "text", "text": {"content": f"[📷 {image_name}]"}}]
                                         }
                                     })
                             else:
@@ -515,7 +515,7 @@ class ObsidianToNotionSync:
                                 blocks.append({
                                     "type": "paragraph",
                                     "paragraph": {
-                                        "rich_text": [{"type": "text", "text": {"content": f"[⚠️ {image_name}]"}]
+                                        "rich_text": [{"type": "text", "text": {"content": f"[⚠️ {image_name}]"}}]
                                     }
                                 })
                         else:
@@ -538,14 +538,14 @@ class ObsidianToNotionSync:
                                     blocks.append({
                                         "type": "paragraph",
                                         "paragraph": {
-                                            "rich_text": [{"type": "text", "text": {"content": f"[📷 {alt_text or Path(full_image_path).name}]"}]
+                                            "rich_text": [{"type": "text", "text": {"content": f"[📷 {alt_text or Path(full_image_path).name}]"}}]
                                         }
                                     })
                             else:
                                 blocks.append({
                                     "type": "paragraph",
                                     "paragraph": {
-                                        "rich_text": [{"type": "text", "text": {"content": f"[⚠️ {image_path}]"}]
+                                        "rich_text": [{"type": "text", "text": {"content": f"[⚠️ {image_path}]"}}]
                                     }
                                 })
 
