@@ -124,18 +124,22 @@ class ObsidianToNotionSync:
             # 计算相对于仓库根目录的路径
             try:
                 rel_path = Path(image_path).relative_to(self.vault_path)
+                print(f"    [Image] Relative path: {rel_path}")
             except ValueError:
                 rel_path = Path(image_path).name
+                print(f"    [Image] Using filename only: {rel_path}")
 
             # 获取 GitHub 仓库信息（从环境变量或默认值）
             github_repo = os.environ.get('GITHUB_REPO', 'alon211/obsidian_public')
             github_branch = os.environ.get('GITHUB_BRANCH', 'main')
 
             # 转换为 GitHub Raw URL
-            # 将反斜杠转换为正斜杠，URL 编码中文字符
+            # 将反斜杠转换为正斜杠
             rel_path_str = str(rel_path).replace('\\', '/')
+
+            # URL 编码中文字符 - 使用 safe 参数避免编码斜杠
             from urllib.parse import quote
-            rel_path_encoded = quote(rel_path_str.encode('utf-8'))
+            rel_path_encoded = quote(rel_path_str.encode('utf-8'), safe='/')
 
             github_raw_url = f"https://raw.githubusercontent.com/{github_repo}/{github_branch}/{rel_path_encoded}"
 
@@ -143,9 +147,10 @@ class ObsidianToNotionSync:
             return github_raw_url
 
         except Exception as e:
-            print(f"  [Error] Failed to process image: {type(e).__name__}: {str(e)[:100]}")
+            print(f"  [Error] Failed to process image: {type(e).__name__}")
+            print(f"  [Error] Message: {str(e)[:200]}")
             import traceback
-            print(f"  [Error] Traceback: {traceback.format_exc()[:200]}")
+            traceback.print_exc()
             return None
 
     def _get_mime_type(self, file_path: str) -> str:
