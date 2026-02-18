@@ -21,6 +21,24 @@ jobs:
         run: |
           pip install requests notion-client markdown2
 
+      - name: Debug - Check environment variables
+        run: |
+          echo "Checking secrets..."
+          if [ -z "${{ secrets.NOTION_TOKEN }}" ]; then
+            echo "ERROR: NOTION_TOKEN secret is not set"
+            echo "Please check at: https://github.com/alon211/obsidian_public/settings/secrets/actions"
+          else
+            echo "NOTION_TOKEN is set (length: ${#NOTION_TOKEN})"
+          fi
+          if [ -z "${{ secrets.NOTION_DATABASE_ID }}" ]; then
+            echo "ERROR: NOTION_DATABASE_ID secret is not set"
+          else
+            echo "NOTION_DATABASE_ID is set (length: ${#NOTION_DATABASE_ID})"
+          fi
+        env:
+          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+          NOTION_DATABASE_ID: ${{ secrets.NOTION_DATABASE_ID }}
+
       - name: Sync to Notion
         env:
           NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
