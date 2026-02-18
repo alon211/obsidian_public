@@ -270,6 +270,60 @@ class ObsidianToNotionSync:
             print(f"  [Error] Finding page: {e}")
         return None
 
+    def clear_page_blocks(self, page_id: str) -> bool:
+        """删除页面中的所有 blocks
+
+        Returns:
+            是否成功删除
+        """
+        try:
+            # 获取页面中的所有 blocks
+            blocks = []
+            has_more = True
+            start_cursor = None
+
+            while has_more:
+                params = {"block_id": page_id}
+                if start_cursor:
+                    params["start_cursor"] = start_cursor
+
+                response = self.notion.blocks.children.list(**params)
+                blocks.extend(response.get('results', []))
+                has_more = response.get('has_more', False)
+                start_cursor = response.get('next_cursor')
+
+            # 删除所有 blocks
+            for block in blocks:
+                if block.get('type') != 'unsupported':  # 跳过不支持的 block 类型
+                    try:
+                        self.notion.blocks.delete(block_id=block['id'])
+                    except Exception as e:
+                        print(f"    [Warning] Failed to delete block {block['id']}: {e}")
+
+            return True
+        except Exception as e:
+            print(f"  [Error] Failed to clear page blocks: {e}")
+            return False
+
+    def update_page_blocks(self, page_id: str, blocks: List[Dict[str, Any]]) -> bool:
+        """更新页面的 blocks
+
+        Returns:
+            是否成功更新
+        """
+        try:
+            # 分批添加 blocks，每批最多 100 个
+            for i in range(0, len(blocks), 100):
+                batch = blocks[i:i+100]
+                self.notion.blocks.children.append(
+                    block_id=page_id,
+                    children=batch
+                )
+            return True
+        except Exception as e:
+            print(f"  [Error] Failed to update page blocks: {e}")
+            return False
+
     def create_or_update_page(self, markdown_file: Path):
         """创建或更新 Notion 页面"""
         print(f"\n📄 Processing: {markdown_file.relative_to(self.vault_path)}")
@@ -303,8 +357,26 @@ class ObsidianToNotionSync:
 
         if existing_page_id:
             print(f"  ✓ Found existing page: {existing_page_id}")
-            # TODO: 实现更新逻辑
-            print(f"  ⚠ Update not yet implemented, skipping")
+            print(f"  → Updating page: '{title}'")
+
+            # 删除页面中的所有现有 blocks
+            if not self.clear_page_blocks(existing_page_id):
+                print(f"  ✗ Failed to clear existing blocks")
+                return
+
+            print(f"  → Cleared existing blocks")
+
+            # 添加新的 blocks
+            if not self.update_page_blocks(existing_page_id, blocks):
+                print(f"  ✗ Failed to add new blocks")
+                return
+
+            if len(blocks) > 100:
+                print(f"  → Added {len(blocks)} blocks in {(len(blocks) + 99) // 100} batches")
+            else:
+                print(f"  → Added {len(blocks)} blocks")
+
+            print(f"  ✅ Updated page: {existing_page_id}")
         else:
             print(f"  → Creating new page: '{title}'")
             try:
