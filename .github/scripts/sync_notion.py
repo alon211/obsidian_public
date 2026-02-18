@@ -255,6 +255,7 @@ class ObsidianToNotionSync:
             页面 ID，如果未找到则返回 None
         """
         try:
+            print(f"  [Debug] Searching for page with title: '{title}'")
             response = self.notion.databases.query(
                 database_id=database_id,
                 filter={
@@ -264,8 +265,24 @@ class ObsidianToNotionSync:
                     }
                 }
             )
-            if response.get('results'):
-                return response['results'][0]['id']
+            results = response.get('results', [])
+            print(f"  [Debug] Found {len(results)} pages matching title")
+
+            if results:
+                page_id = results[0]['id']
+                # 打印现有页面的标题用于调试
+                page_title = results[0].get('properties', {}).get('Name', {}).get('title', [{}])[0].get('text', {}).get('content', '')
+                print(f"  [Debug] Existing page title in Notion: '{page_title}'")
+                print(f"  [Debug] Searching for title: '{title}'")
+                print(f"  [Debug] Match: {page_title == title}")
+                return page_id
+            else:
+                # 列出数据库中所有页面的标题用于调试
+                print(f"  [Debug] No exact match found. Listing all pages in database...")
+                all_pages = self.notion.databases.query(database_id=database_id)
+                for page in all_pages.get('results', [])[:5]:  # 只显示前5个
+                    page_title = page.get('properties', {}).get('Name', {}).get('title', [{}])[0].get('text', {}).get('content', '')
+                    print(f"    - '{page_title}'")
         except Exception as e:
             print(f"  [Error] Finding page: {e}")
         return None
@@ -412,6 +429,20 @@ class ObsidianToNotionSync:
         print(f"{'='*50}")
         print(f"Source: {self.vault_path}")
         print(f"Database: {self.database_id}")
+
+        # 诊断：打印数据库结构
+        try:
+            db = self.notion.databases.retrieve(self.database_id)
+            print(f"\n[Debug] Database structure:")
+            print(f"  Title: {db.get('title', [{}])[0].get('plain_text', 'N/A')}")
+            props = db.get('properties', {})
+            print(f"  Properties ({len(props)}):")
+            for prop_name, prop_data in props.items():
+                prop_type = prop_data.get('type', 'unknown')
+                print(f"    - '{prop_name}' (type: {prop_type})")
+        except Exception as e:
+            print(f"\n[Warning] Could not retrieve database structure: {e}")
+
         print(f"{'='*50}\n")
 
         # 查找所有 .md 文件
