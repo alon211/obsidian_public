@@ -113,100 +113,29 @@ class ObsidianToNotionSync:
         return None
 
     def upload_image_to_notion(self, image_path: str) -> Optional[str]:
-        """上传图片到 Notion S3 并返回 URL
+        """上传图片到 Notion
 
-        使用 Notion Files API 上传图片
+        目前使用 GitHub raw URL 作为外部图片
         """
         try:
-            print(f"  [Image] Uploading: {Path(image_path).name}")
+            print(f"  [Image] Processing: {Path(image_path).name}")
 
-            # 读取图片文件
-            with open(image_path, 'rb') as f:
-                file_data = f.read()
+            # 计算相对于仓库根目录的路径
+            try:
+                rel_path = Path(image_path).relative_to(self.vault_path)
+            except ValueError:
+                rel_path = Path(image_path).name
 
-            file_size = len(file_data)
-            mime_type = self._get_mime_type(image_path)
+            # 使用 GitHub raw URL
+            # 需要知道仓库信息，这里暂时返回 None
+            # TODO: 实现图片上传到外部服务
+            print(f"  [Info] Image path: {rel_path}")
+            print(f"  [Info] Image upload not yet implemented - using placeholder")
 
-            print(f"  [Image] Size: {file_size / 1024:.1f} KB, Type: {mime_type}")
-
-            # 使用 Notion Files API 上传
-            # 步骤1: 获取上传 URL
-            headers = {
-                "Authorization": f"Bearer {self.token}",
-                "Notion-Version": "2022-06-28",
-                "Content-Type": "application/json"
-            }
-
-            # 准备上传请求
-            import json
-            upload_url = f"https://api.notion.com/v1/files"
-
-            # Notion 要求先创建文件对象获取上传 URL
-            # 但由于 Notion API 限制，我们使用简化的方法
-            # 尝试直接上传获取 S3 URL
-
-            # 方法：使用 POST /v1/files 创建文件并获取上传 URL
-            create_response = httpx.post(
-                upload_url,
-                headers=headers,
-                json={
-                    "type": "file",
-                    "file": {
-                        "name": Path(image_path).name,
-                        "type": mime_type
-                    },
-                    "parent": {
-                        "type": "page_id",
-                        "page_id": self.database_id  # 临时使用数据库 ID
-                    }
-                },
-                timeout=30.0
-            )
-
-            if create_response.status_code != 200:
-                # 如果失败，使用备用方案：生成占位符
-                print(f"  [Warning] Could not get upload URL: HTTP {create_response.status_code}")
-                return None
-
-            upload_data = create_response.json()
-
-            # 检查是否有上传 URL
-            if "file" in upload_data and "url" in upload_data["file"]:
-                # 直接返回 URL
-                file_url = upload_data["file"]["url"]
-                print(f"  [Image] Upload successful: {file_url[:50]}...")
-                return file_url
-
-            # 如果返回了上传 URL，需要上传文件到 S3
-            if "file" in upload_data and "upload_url" in upload_data["file"]:
-                s3_upload_url = upload_data["file"]["upload_url"]
-
-                # 步骤2: 上传文件到 S3
-                s3_headers = {
-                    "Content-Type": mime_type
-                }
-
-                s3_response = httpx.put(
-                    s3_upload_url,
-                    headers=s3_headers,
-                    content=file_data,
-                    timeout=60.0
-                )
-
-                if s3_response.status_code == 200:
-                    # 步骤3: 获取最终文件 URL
-                    file_url = upload_data["file"]["url"]
-                    print(f"  [Image] Upload successful: {file_url[:50]}...")
-                    return file_url
-                else:
-                    print(f"  [Error] S3 upload failed: HTTP {s3_response.status_code}")
-                    return None
-
-            print(f"  [Warning] No upload URL in response")
             return None
 
         except Exception as e:
-            print(f"  [Error] Failed to upload image: {type(e).__name__}: {str(e)[:100]}")
+            print(f"  [Error] Failed to process image: {e}")
             return None
 
     def _get_mime_type(self, file_path: str) -> str:
@@ -421,7 +350,7 @@ class ObsidianToNotionSync:
                             "paragraph": {
                                 "rich_text": [{
                                     "type": "text",
-                                    "text": {"content": f"[📷 图片: {image_name}]", "attributes": {"code": True}}
+                                    "text": {"content": f"[📷 图片: {image_name}]"}
                                 }]
                             }
                         })
@@ -469,7 +398,7 @@ class ObsidianToNotionSync:
                             "paragraph": {
                                 "rich_text": [{
                                     "type": "text",
-                                    "text": {"content": f"[📷 图片: {Path(full_image_path).name if full_image_path else image_path}]", "attributes": {"code": True}}
+                                    "text": {"content": f"[📷 图片: {Path(full_image_path).name if full_image_path else image_path}]"}
                                 }]
                             }
                         })
