@@ -3,18 +3,24 @@
 Sync Obsidian markdown files to Notion database via GitHub Actions
 
 Features:
+- Uses unique file ID (SHA256 of relative path) for reliable page matching
 - Converts Obsidian wiki-link syntax [[image]] to Notion image blocks
 - Handles YAML frontmatter
 - Supports headings, lists, code blocks, quotes, paragraphs
-- Creates new pages or updates existing ones based on title
+- Creates new pages or updates existing ones based on file_id
 
 Requirements:
 pip install notion-client markdown2
+
+Notion Database Setup:
+1. Add a "file_id" property (type: rich_text) to your database
+2. The script will use this ID to match and update pages
 """
 
 import os
 import re
 import sys
+import hashlib
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 
@@ -26,12 +32,39 @@ except ImportError:
 
 
 class ObsidianToNotionSync:
-    """Sync Obsidian vault to Notion database"""
+    """Sync Obsidian vault to Notion database using unique file ID"""
 
     def __init__(self, token: str, database_id: str, vault_path: str):
         self.notion = Client(auth=token)
         self.database_id = database_id
         self.vault_path = Path(vault_path)
+
+    def generate_file_id(self, file_path: Path) -> str:
+        """为文件生成唯一 ID
+
+        使用文件相对路径的 SHA256 hash 作为唯一 ID
+        这样即使文件移动或重命名，只要内容路径关系不变，ID 就稳定
+
+        Args:
+            file_path: 文件的完整路径
+
+        Returns:
+            16 位十六进制的文件 ID
+        """
+        # 计算相对路径
+        try:
+            relative_path = file_path.relative_to(self.vault_path)
+        except ValueError:
+            # 文件不在 vault_path 下，使用绝对路径
+            relative_path = file_path
+
+        # 转换为正斜杠（跨平台一致性）
+        path_str = str(relative_path).replace('\\', '/')
+
+        # 生成 SHA256 hash 并取前 16 位
+        file_id = hashlib.sha256(path_str.encode('utf-8')).hexdigest()[:16]
+
+        return file_id
 
     def find_image_path(self, markdown_dir: Path, image_ref: str) -> Optional[str]:
         """查找图片文件的完整路径
@@ -248,43 +281,33 @@ class ObsidianToNotionSync:
 
         return blocks
 
-    def find_page_by_title(self, database_id: str, title: str) -> Optional[str]:
-        """在数据库中查找已存在的页面
+    def find_page_by_file_id(self, database_id: str, file_id: str) -> Optional[str]:
+        """在数据库中通过 file_id 查找已存在的页面
 
         Returns:
             页面 ID，如果未找到则返回 None
         """
         try:
-            print(f"  [Debug] Searching for page with title: '{title}'")
             response = self.notion.databases.query(
                 database_id=database_id,
                 filter={
-                    "property": "Name",
-                    "title": {
-                        "equals": title
+                    "property": "file_id",
+                    "rich_text": {
+                        "equals": file_id
                     }
                 }
             )
             results = response.get('results', [])
-            print(f"  [Debug] Found {len(results)} pages matching title")
 
             if results:
-                page_id = results[0]['id']
-                # 打印现有页面的标题用于调试
-                page_title = results[0].get('properties', {}).get('Name', {}).get('title', [{}])[0].get('text', {}).get('content', '')
-                print(f"  [Debug] Existing page title in Notion: '{page_title}'")
-                print(f"  [Debug] Searching for title: '{title}'")
-                print(f"  [Debug] Match: {page_title == title}")
-                return page_id
-            else:
-                # 列出数据库中所有页面的标题用于调试
-                print(f"  [Debug] No exact match found. Listing all pages in database...")
-                all_pages = self.notion.databases.query(database_id=database_id)
-                for page in all_pages.get('results', [])[:5]:  # 只显示前5个
-                    page_title = page.get('properties', {}).get('Name', {}).get('title', [{}])[0].get('text', {}).get('content', '')
-                    print(f"    - '{page_title}'")
+                return results[0]['id']
         except Exception as e:
-            print(f"  [Error] Finding page: {e}")
+            # 如果 file_id 属性不存在，会报错，这里捕获并返回 None
+            if "property does not exist" in str(e) or "Cannot query" in str(e):
+                print(f"  [Warning] 'file_id' property not found in database")
+                print(f"  [Info] Please add a 'file_id' property (type: rich_text) to your database")
+            else:
+                print(f"  [Error] Finding page: {e}")
         return None
 
     def clear_page_blocks(self, page_id: str) -> bool:
@@ -343,7 +366,11 @@ class ObsidianToNotionSync:
 
     def create_or_update_page(self, markdown_file: Path):
         """创建或更新 Notion 页面"""
+        # 生成文件的唯一 ID
+        file_id = self.generate_file_id(markdown_file)
+
         print(f"\n📄 Processing: {markdown_file.relative_to(self.vault_path)}")
+        print(f"  [File ID: {file_id}]")
 
         # 读取 markdown 内容
         try:
@@ -369,8 +396,8 @@ class ObsidianToNotionSync:
 
         print(f"  → Generated {len(blocks)} blocks")
 
-        # 检查页面是否已存在
-        existing_page_id = self.find_page_by_title(self.database_id, title)
+        # 检查页面是否已存在（通过 file_id）
+        existing_page_id = self.find_page_by_file_id(self.database_id, file_id)
 
         if existing_page_id:
             print(f"  ✓ Found existing page: {existing_page_id}")
@@ -403,6 +430,9 @@ class ObsidianToNotionSync:
                     properties={
                         "Name": {
                             "title": [{"text": {"content": title}}]
+                        },
+                        "file_id": {
+                            "rich_text": [{"text": {"content": file_id}}]
                         }
                     },
                     children=blocks[:100]
@@ -425,7 +455,7 @@ class ObsidianToNotionSync:
     def run(self):
         """主函数：遍历所有 markdown 文件并同步"""
         print(f"\n{'='*50}")
-        print(f"Obsidian → Notion Sync")
+        print(f"Obsidian → Notion Sync (with file_id matching)")
         print(f"{'='*50}")
         print(f"Source: {self.vault_path}")
         print(f"Database: {self.database_id}")
@@ -440,6 +470,11 @@ class ObsidianToNotionSync:
             for prop_name, prop_data in props.items():
                 prop_type = prop_data.get('type', 'unknown')
                 print(f"    - '{prop_name}' (type: {prop_type})")
+
+            # 检查是否有 file_id 属性
+            if 'file_id' not in props:
+                print(f"\n  ⚠️  WARNING: 'file_id' property not found!")
+                print(f"  Please add a 'file_id' property (type: rich_text) to your database")
         except Exception as e:
             print(f"\n[Warning] Could not retrieve database structure: {e}")
 
