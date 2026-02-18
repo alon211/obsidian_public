@@ -533,21 +533,35 @@ class ObsidianToNotionSync:
         print(f"Source: {self.vault_path}")
         print(f"Database: {self.database_id}")
 
-        # 诊断：打印数据库结构
+        # 诊断：使用 HTTP API 打印数据库结构
         try:
-            db = self.notion.databases.retrieve(self.database_id)
-            print(f"\n[Debug] Database structure:")
-            print(f"  Title: {db.get('title', [{}])[0].get('plain_text', 'N/A')}")
-            props = db.get('properties', {})
-            print(f"  Properties ({len(props)}):")
-            for prop_name, prop_data in props.items():
-                prop_type = prop_data.get('type', 'unknown')
-                print(f"    - '{prop_name}' (type: {prop_type})")
+            headers = {
+                "Authorization": f"Bearer {self.notion.auth}",
+                "Notion-Version": "2022-06-28",
+                "Content-Type": "application/json"
+            }
+            url = f"https://api.notion.com/v1/databases/{self.database_id}"
+            response = httpx.get(url, headers=headers, timeout=30.0)
 
-            # 检查是否有 file_id 属性
-            if 'file_id' not in props:
-                print(f"\n  ⚠️  WARNING: 'file_id' property not found!")
-                print(f"  Please add a 'file_id' property (type: rich_text) to your database")
+            if response.status_code == 200:
+                db = response.json()
+                print(f"\n[Debug] Database structure:")
+                title = db.get('title', [{}])[0].get('plain_text', 'N/A') if db.get('title') else 'N/A'
+                print(f"  Title: {title}")
+                props = db.get('properties', {})
+                print(f"  Properties ({len(props)}):")
+                for prop_name, prop_data in props.items():
+                    prop_type = prop_data.get('type', 'unknown')
+                    print(f"    - '{prop_name}' (type: {prop_type})")
+
+                # 检查是否有 file_id 属性
+                if 'file_id' not in props:
+                    print(f"\n  ⚠️  WARNING: 'file_id' property not found!")
+                    print(f"  Please add a 'file_id' property (type: rich_text) to your database")
+                else:
+                    print(f"\n  ✅ 'file_id' property found")
+            else:
+                print(f"\n[Warning] Could not retrieve database structure: HTTP {response.status_code}")
         except Exception as e:
             print(f"\n[Warning] Could not retrieve database structure: {e}")
 
