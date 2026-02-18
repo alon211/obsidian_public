@@ -139,11 +139,13 @@ class ObsidianToNotionSync:
 
             github_raw_url = f"https://raw.githubusercontent.com/{github_repo}/{github_branch}/{rel_path_encoded}"
 
-            print(f"  [Image] GitHub URL: {github_raw_url[:80]}...")
+            print(f"  [Image] GitHub URL created (length: {len(github_raw_url)})")
             return github_raw_url
 
         except Exception as e:
-            print(f"  [Error] Failed to process image: {e}")
+            print(f"  [Error] Failed to process image: {type(e).__name__}: {str(e)[:100]}")
+            import traceback
+            print(f"  [Error] Traceback: {traceback.format_exc()[:200]}")
             return None
 
     def _get_mime_type(self, file_path: str) -> str:
@@ -250,6 +252,8 @@ class ObsidianToNotionSync:
         lines = markdown_content.split('\n')
         i = 0
 
+        print(f"  [Debug] Converting markdown: {len(lines)} lines")
+
         while i < len(lines):
             line = lines[i].rstrip()
 
@@ -343,6 +347,7 @@ class ObsidianToNotionSync:
             obsidian_image_match = re.match(r'^!\[\[(.*?)\]\]$', line)
             if obsidian_image_match:
                 image_name = obsidian_image_match.group(1)
+                print(f"  [Debug] Processing Obsidian image: {image_name}")
                 image_path = self.find_image_path(markdown_dir, image_name)
                 if image_path:
                     image_url = self.upload_image_to_notion(image_path)
@@ -354,6 +359,7 @@ class ObsidianToNotionSync:
                                 "external": {"url": image_url}
                             }
                         })
+                        print(f"  [Debug] Image block added")
                         i += 1
                         continue
                     else:
@@ -388,6 +394,7 @@ class ObsidianToNotionSync:
             if md_image_match:
                 alt_text = md_image_match.group(1)
                 image_path = md_image_match.group(2)
+                print(f"  [Debug] Processing Markdown image: ![{alt_text}]({image_path})")
 
                 # 解析图片路径
                 full_image_path = self._resolve_image_path(markdown_dir, image_path)
@@ -402,6 +409,7 @@ class ObsidianToNotionSync:
                                 "external": {"url": image_url}
                             }
                         })
+                        print(f"  [Debug] Image block added")
                         i += 1
                         continue
                     else:
@@ -446,6 +454,7 @@ class ObsidianToNotionSync:
 
             i += 1
 
+        print(f"  [Debug] Total blocks generated: {len(blocks)}")
         return blocks
 
     def find_page_by_file_id(self, database_id: str, file_id: str) -> Optional[str]:
