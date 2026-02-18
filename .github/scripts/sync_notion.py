@@ -25,7 +25,8 @@ from pathlib import Path
 from typing import List, Dict, Any, Optional
 
 try:
-    from notion_client import Client
+    from notion_client import Client, APIResponseError
+    import httpx
 except ImportError:
     print("Error: notion-client not installed. Run: pip install notion-client")
     sys.exit(1)
@@ -38,6 +39,13 @@ class ObsidianToNotionSync:
         self.notion = Client(auth=token)
         self.database_id = database_id
         self.vault_path = Path(vault_path)
+
+        # 调试：打印 Client 类型
+        print(f"[Debug] Notion Client type: {type(self.notion)}")
+        print(f"[Debug] Has databases attr: {hasattr(self.notion, 'databases')}")
+        if hasattr(self.notion, 'databases'):
+            print(f"[Debug] Databases type: {type(self.notion.databases)}")
+            print(f"[Debug] Has query attr: {hasattr(self.notion.databases, 'query')}")
 
     def generate_file_id(self, file_path: Path) -> str:
         """为文件生成唯一 ID
@@ -287,39 +295,76 @@ class ObsidianToNotionSync:
         Returns:
             页面 ID，如果未找到则返回 None
         """
-        try:
-            print(f"  [Debug] Querying database for file_id: {file_id}")
-            # 使用正确的 API 调用方式
-            response = self.notion.databases.query(
-                **{
-                    "database_id": database_id,
-                    "filter": {
+        print(f"  [Debug] Looking for file_id: {file_id}")
+
+        # 方法1: 使用 databases.query (如果可用)
+        if hasattr(self.notion, 'databases') and hasattr(self.notion.databases, 'query'):
+            try:
+                print(f"  [Debug] Using databases.query() method")
+                response = self.notion.databases.query(
+                    database_id=database_id,
+                    filter={
                         "property": "file_id",
                         "rich_text": {
                             "equals": file_id
                         }
                     }
+                )
+                results = response.get('results', [])
+                print(f"  [Debug] Found {len(results)} pages with file_id")
+
+                if results:
+                    page_id = results[0]['id']
+                    print(f"  [Debug] Existing page ID: {page_id}")
+                    return page_id
+                return None
+            except Exception as e:
+                print(f"  [Debug] databases.query failed: {e}")
+
+        # 方法2: 直接使用 HTTP API
+        try:
+            print(f"  [Debug] Using HTTP API directly")
+            headers = {
+                "Authorization": f"Bearer {self.notion.auth}",
+                "Notion-Version": "2022-06-28",
+                "Content-Type": "application/json"
+            }
+
+            # 先查询所有页面
+            import json
+            url = f"https://api.notion.com/v1/databases/{database_id}/query"
+            payload = {
+                "filter": {
+                    "property": "file_id",
+                    "rich_text": {
+                        "equals": file_id
+                    }
                 }
-            )
-            results = response.get('results', [])
-            print(f"  [Debug] Found {len(results)} pages with file_id")
+            }
+
+            response = httpx.post(url, headers=headers, json=payload, timeout=30.0)
+            response.raise_for_status()
+
+            data = response.json()
+            results = data.get('results', [])
+            print(f"  [Debug] HTTP API found {len(results)} pages")
 
             if results:
                 page_id = results[0]['id']
-                print(f"  [Debug] Existing page ID: {page_id}")
+                print(f"  [Debug] Found existing page: {page_id}")
                 return page_id
-        except AttributeError as e:
-            print(f"  [Error] API method not found: {e}")
-            print(f"  [Info] This might be a notion-client version issue")
+
+            print(f"  [Debug] No existing page found with file_id")
+            return None
+
+        except httpx.HTTPStatusError as e:
+            print(f"  [Error] HTTP {e.response.status_code}: {e.response.text}")
+            if e.response.status_code == 400:
+                print(f"  [Info] This might mean 'file_id' property doesn't exist or can't be filtered")
+            return None
         except Exception as e:
-            error_str = str(e)
-            # 如果 file_id 属性不存在，会报错，这里捕获并返回 None
-            if "property does not exist" in error_str or "Cannot query" in error_str or "filter" in error_str:
-                print(f"  [Warning] 'file_id' property not found or not queryable")
-                print(f"  [Info] Please check the 'file_id' property in your database")
-            else:
-                print(f"  [Error] Finding page: {type(e).__name__}: {e}")
-        return None
+            print(f"  [Error] HTTP request failed: {type(e).__name__}: {e}")
+            return None
 
     def clear_page_blocks(self, page_id: str) -> bool:
         """删除页面中的所有 blocks
