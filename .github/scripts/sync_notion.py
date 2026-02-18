@@ -171,6 +171,78 @@ class ObsidianToNotionSync:
         }
         return mime_types.get(ext, 'image/png')
 
+    def _resolve_image_path(self, markdown_dir: Path, image_path: str) -> Optional[str]:
+        """解析图片路径（支持相对路径）
+
+        支持的格式:
+        - assets/OP20EM10程序逻辑/file.png (相对于 markdown 文件)
+        - ../images/file.png (相对路径)
+        - /absolute/path/file.png (绝对路径)
+        """
+        # 去掉 URL 协议前缀
+        if image_path.startswith(('http://', 'https://')):
+            return None  # 外部图片，不需要处理
+
+        # 转换为 Path 对象
+        img_path = Path(image_path)
+
+        # 如果是绝对路径，直接返回
+        if img_path.is_absolute():
+            return str(img_path) if img_path.exists() else None
+
+        # 相对路径：相对于 markdown 文件所在目录
+        full_path = markdown_dir / img_path
+
+        if full_path.exists():
+            return str(full_path)
+
+        # 如果直接找不到，尝试其他可能的路径
+        # 检查 images 文件夹
+        images_path = markdown_dir / "images" / img_path.name
+        if images_path.exists():
+            return str(images_path)
+
+        # 检查 assets 文件夹
+        assets_path = markdown_dir / "assets" / img_path.name
+        if assets_path.exists():
+            return str(assets_path)
+
+        # 检查 attachments 文件夹
+        attachments_path = markdown_dir / "attachments" / img_path.name
+        if attachments_path.exists():
+            return str(attachments_path)
+
+        return None
+
+    def _process_inline_images(self, line: str, markdown_dir: Path) -> str:
+        """处理段落中的内联图片
+
+        将 ![](path) 或 ![[path]] 替换为占位符或处理
+        注意：Notion 不支持真正的内联图片，所以这里用占位符
+        """
+        # 处理 Obsidian wiki-link 内联图片 ![[path]]
+        def replace_obsidian_image(match):
+            image_name = match.group(1)
+            image_path = self.find_image_path(markdown_dir, image_name)
+            if image_path:
+                return f"[📷 {image_name}]"
+            return f"[⚠️ 图片: {image_name}]"
+
+        line = re.sub(r'!\[\[(.*?)\]\]', replace_obsidian_image, line)
+
+        # 处理标准 Markdown 内联图片 ![alt](path)
+        def replace_md_image(match):
+            alt_text = match.group(1)
+            image_path = match.group(2)
+            full_path = self._resolve_image_path(markdown_dir, image_path)
+            if full_path and Path(full_path).exists():
+                return f"[📷 {alt_text or Path(full_path).name}]"
+            return f"[⚠️ 图片: {alt_text or image_path}]"
+
+        line = re.sub(r'!\[(.*?)\]\((.*?)\)', replace_md_image, line)
+
+        return line
+
     def convert_obsidian_to_notion_blocks(self, markdown_content: str, markdown_dir: Path) -> List[Dict[str, Any]]:
         """将 Obsidian Markdown 转换为 Notion blocks
 
@@ -274,10 +346,11 @@ class ObsidianToNotionSync:
                 i += 1
                 continue
 
-            # 处理图片 ![[filename]]
-            image_match = re.match(r'^!\[\[(.*?)\]\]$', line)
-            if image_match:
-                image_name = image_match.group(1)
+            # 处理图片 - 优先处理单独一行的图片
+            # 格式1: ![[filename]] (Obsidian wiki-link)
+            obsidian_image_match = re.match(r'^!\[\[(.*?)\]\]$', line)
+            if obsidian_image_match:
+                image_name = obsidian_image_match.group(1)
                 image_path = self.find_image_path(markdown_dir, image_name)
                 if image_path:
                     image_url = self.upload_image_to_notion(image_path)
@@ -289,6 +362,8 @@ class ObsidianToNotionSync:
                                 "external": {"url": image_url}
                             }
                         })
+                        i += 1
+                        continue
                     else:
                         # 占位符: 图片未上传
                         blocks.append({
@@ -300,6 +375,8 @@ class ObsidianToNotionSync:
                                 }]
                             }
                         })
+                        i += 1
+                        continue
                 else:
                     print(f"  [Warning] Image not found: {image_name}")
                     blocks.append({
@@ -311,17 +388,60 @@ class ObsidianToNotionSync:
                             }]
                         }
                     })
-                i += 1
-                continue
+                    i += 1
+                    continue
 
-            # 处理内联图片 ![[图片]] 在文本中
-            inline_image_match = re.search(r'!\[\[(.*?)\]\]', line)
-            if inline_image_match:
-                image_name = inline_image_match.group(1)
-                image_path = self.find_image_path(markdown_dir, image_name)
-                if image_path:
-                    # 替换为占位符
-                    line = re.sub(r'!\[\[(.*?)\]\]', f"[📷 {image_name}]", line)
+            # 格式2: ![alt](path) 或 !(path) (标准 Markdown)
+            md_image_match = re.match(r'^!\[(.*?)\]\((.*?)\)$', line)
+            if md_image_match:
+                alt_text = md_image_match.group(1)
+                image_path = md_image_match.group(2)
+
+                # 解析图片路径
+                full_image_path = self._resolve_image_path(markdown_dir, image_path)
+
+                if full_image_path and Path(full_image_path).exists():
+                    image_url = self.upload_image_to_notion(full_image_path)
+                    if image_url:
+                        blocks.append({
+                            "type": "image",
+                            "image": {
+                                "type": "external",
+                                "external": {"url": image_url}
+                            }
+                        })
+                        i += 1
+                        continue
+                    else:
+                        # 占位符: 图片未上传
+                        blocks.append({
+                            "type": "paragraph",
+                            "paragraph": {
+                                "rich_text": [{
+                                    "type": "text",
+                                    "text": {"content": f"[📷 图片: {Path(full_image_path).name if full_image_path else image_path}]", "attributes": {"code": True}}
+                                }]
+                            }
+                        })
+                        i += 1
+                        continue
+                else:
+                    print(f"  [Warning] Image not found: {image_path}")
+                    blocks.append({
+                        "type": "paragraph",
+                        "paragraph": {
+                            "rich_text": [{
+                                "type": "text",
+                                "text": {"content": f"[⚠️ 图片未找到: {image_path}]"}
+                            }]
+                        }
+                    })
+                    i += 1
+                    continue
+
+            # 处理内联图片 (在段落中的图片)
+            # 先处理 Obsidian wiki-link 内联图片
+            line = self._process_inline_images(line, markdown_dir)
 
             # 处理普通段落
             if line.strip():
