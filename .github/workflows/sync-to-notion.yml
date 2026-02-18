@@ -21,7 +21,7 @@ jobs:
         run: |
           pip install requests markdown2
           pip install "notion-client>=2.2.1,<3.0.0"
-          python3 -c "import notion_client; print(f'notion-client version: {notion_client.__version__}')"
+          pip show notion-client | grep Version
 
       - name: Sync to Notion
         env:
