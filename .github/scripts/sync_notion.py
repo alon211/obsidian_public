@@ -199,6 +199,11 @@ class ObsidianToNotionSync:
         if attachments_path.exists():
             return str(attachments_path)
 
+        # 打印调试信息
+        print(f"    [Debug] Image not found: {image_path}")
+        print(f"    [Debug] Tried: {full_path}")
+        print(f"    [Debug] markdown_dir: {markdown_dir}")
+
         return None
 
     def _process_inline_images(self, line: str, markdown_dir: Path) -> str:
