@@ -451,11 +451,125 @@ class ObsidianToNotionSync:
                     i += 1
                     continue
 
-            # 处理内联图片 (在段落中的图片)
-            # 先处理 Obsidian wiki-link 内联图片
-            line = self._process_inline_images(line, markdown_dir)
+            # 处理内联图片 - 先提取所有内联图片，然后再处理文本
+            inline_images = []
 
-            # 处理普通段落
+            # 提取标准 Markdown 内联图片 ![alt](path)
+            md_inline_images = list(re.finditer(r'!\[(.*?)\]\((.*?)\)', line))
+            for match in md_inline_images:
+                alt_text = match.group(1)
+                image_path = match.group(2)
+                inline_images.append(('markdown', image_path, alt_text))
+
+            # 提取 Obsidian wiki-link 内联图片 ![[path]]
+            obsidian_inline_images = list(re.finditer(r'!\[\[(.*?)\]\]', line))
+            for match in obsidian_inline_images:
+                image_name = match.group(1)
+                inline_images.append(('obsidian', image_name, None))
+
+            # 如果有内联图片，需要特殊处理
+            if inline_images:
+                # 将文本行拆分为文本和图片的混合 blocks
+                # 先创建一个用于存储文本部分的列表
+                text_parts = []
+                last_end = 0
+
+                # 收集所有内联图片的位置
+                all_matches = []
+                for match_type, match in [(m[0], m) for m in re.finditer(r'(!\[[^\]]+\]\]|!\[.*?\]\(.*?\))', line)]:
+                    all_matches.append((match.start(), match.end(), match_type, match))
+
+                if all_matches:
+                    # 处理每个图片和其前后的文本
+                    for start, end, match_type, match in sorted(all_matches):
+                        # 添加前面的文本部分
+                        if start > last_end:
+                            text_parts.append(line[last_end:start])
+
+                        # 处理图片
+                        if match_type.startswith('![['):
+                            # Obsidian wiki-link: ![[path]]
+                            image_name = match.group(2) if match_type == '![[' else match.group(1)
+                            print(f"  [Debug] Processing inline Obsidian image: {image_name}")
+                            image_path = self.find_image_path(markdown_dir, image_name)
+                            if image_path:
+                                image_url = self.upload_image_to_notion(image_path)
+                                if image_url:
+                                    blocks.append({
+                                        "type": "image",
+                                        "image": {
+                                            "type": "external",
+                                            "external": {"url": image_url}
+                                        }
+                                    })
+                                else:
+                                    # 图片上传失败，添加占位符
+                                    blocks.append({
+                                        "type": "paragraph",
+                                        "paragraph": {
+                                            "rich_text": [{"type": "text", "text": {"content": f"[📷 {image_name}]"}]
+                                        }
+                                    })
+                            else:
+                                # 图片未找到
+                                blocks.append({
+                                    "type": "paragraph",
+                                    "paragraph": {
+                                        "rich_text": [{"type": "text", "text": {"content": f"[⚠️ {image_name}]"}]
+                                    }
+                                })
+                        else:
+                            # Markdown 图片: ![alt](path)
+                            alt_text = match.group(2) if match_type == '![](' else match.group(1)
+                            image_path = match.group(3) if match_type == '![](' else match.group(2)
+                            print(f"  [Debug] Processing inline Markdown image: ![{alt_text}]({image_path})")
+                            full_image_path = self._resolve_image_path(markdown_dir, image_path)
+                            if full_image_path and Path(full_image_path).exists():
+                                image_url = self.upload_image_to_notion(full_image_path)
+                                if image_url:
+                                    blocks.append({
+                                        "type": "image",
+                                        "image": {
+                                            "type": "external",
+                                            "external": {"url": image_url}
+                                        }
+                                    })
+                                else:
+                                    blocks.append({
+                                        "type": "paragraph",
+                                        "paragraph": {
+                                            "rich_text": [{"type": "text", "text": {"content": f"[📷 {alt_text or Path(full_image_path).name}]"}]
+                                        }
+                                    })
+                            else:
+                                blocks.append({
+                                    "type": "paragraph",
+                                    "paragraph": {
+                                        "rich_text": [{"type": "text", "text": {"content": f"[⚠️ {image_path}]"}]
+                                    }
+                                })
+
+                        last_end = end
+
+                    # 添加最后的文本部分
+                    if last_end < len(line):
+                        text_parts.append(line[last_end:])
+
+                    # 将所有文本部分合并为一个段落
+                    if text_parts:
+                        combined_text = ''.join(text_parts).strip()
+                        if combined_text:
+                            blocks.append({
+                                "type": "paragraph",
+                                "paragraph": {
+                                    "rich_text": [{"type": "text", "text": {"content": combined_text}}]
+                                }
+                            })
+
+                    i += 1
+                    continue
+
+            # 处理普通段落（没有内联图片的情况）
             if line.strip():
                 blocks.append({
                     "type": "paragraph",
