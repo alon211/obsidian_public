@@ -330,8 +330,6 @@ class ObsidianToNotionSync:
                 "Content-Type": "application/json"
             }
 
-            # 先查询所有页面
-            import json
             url = f"https://api.notion.com/v1/databases/{database_id}/query"
             payload = {
                 "filter": {
@@ -342,8 +340,16 @@ class ObsidianToNotionSync:
                 }
             }
 
+            print(f"  [Debug] POST to {url}")
+            print(f"  [Debug] Filter: property='file_id', equals='{file_id}'")
+
             response = httpx.post(url, headers=headers, json=payload, timeout=30.0)
-            response.raise_for_status()
+
+            print(f"  [Debug] Response status: {response.status_code}")
+
+            if response.status_code != 200:
+                print(f"  [Error] HTTP {response.status_code}: {response.text}")
+                return None
 
             data = response.json()
             results = data.get('results', [])
@@ -358,12 +364,23 @@ class ObsidianToNotionSync:
             return None
 
         except httpx.HTTPStatusError as e:
-            print(f"  [Error] HTTP {e.response.status_code}: {e.response.text}")
+            print(f"  [Error] HTTP {e.response.status_code}: {e.response.text[:200]}")
             if e.response.status_code == 400:
                 print(f"  [Info] This might mean 'file_id' property doesn't exist or can't be filtered")
+            elif e.response.status_code == 401:
+                print(f"  [Info] Authentication failed - check NOTION_TOKEN")
+            elif e.response.status_code == 403:
+                print(f"  [Info] Permission denied - check Integration capabilities")
+            elif e.response.status_code == 404:
+                print(f"  [Info] Database not found - check NOTION_DATABASE_ID")
+            return None
+        except httpx.TimeoutException:
+            print(f"  [Error] HTTP request timed out")
             return None
         except Exception as e:
-            print(f"  [Error] HTTP request failed: {type(e).__name__}: {e}")
+            print(f"  [Error] HTTP request failed: {type(e).__name__}: {str(e)[:200]}")
+            import traceback
+            traceback.print_exc()
             return None
 
     def clear_page_blocks(self, page_id: str) -> bool:
