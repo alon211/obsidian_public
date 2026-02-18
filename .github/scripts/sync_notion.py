@@ -182,6 +182,11 @@ class ObsidianToNotionSync:
         # 相对路径：相对于 markdown 文件所在目录
         full_path = markdown_dir / img_path
 
+        print(f"    [Debug] Resolving: {image_path}")
+        print(f"    [Debug] markdown_dir: {markdown_dir}")
+        print(f"    [Debug] full_path: {full_path}")
+        print(f"    [Debug] exists: {full_path.exists()}")
+
         if full_path.exists():
             return str(full_path)
 
@@ -189,22 +194,24 @@ class ObsidianToNotionSync:
         # 检查 images 文件夹
         images_path = markdown_dir / "images" / img_path.name
         if images_path.exists():
+            print(f"    [Debug] Found in images/: {images_path}")
             return str(images_path)
 
         # 检查 assets 文件夹
         assets_path = markdown_dir / "assets" / img_path.name
         if assets_path.exists():
+            print(f"    [Debug] Found in assets/: {assets_path}")
             return str(assets_path)
 
         # 检查 attachments 文件夹
         attachments_path = markdown_dir / "attachments" / img_path.name
         if attachments_path.exists():
+            print(f"    [Debug] Found in attachments/: {attachments_path}")
             return str(attachments_path)
 
         # 打印调试信息
         print(f"    [Debug] Image not found: {image_path}")
         print(f"    [Debug] Tried: {full_path}")
-        print(f"    [Debug] markdown_dir: {markdown_dir}")
 
         return None
 
