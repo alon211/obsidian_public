@@ -124,39 +124,89 @@ class ObsidianToNotionSync:
             with open(image_path, 'rb') as f:
                 file_data = f.read()
 
-            # 获取文件名和 MIME 类型
-            file_name = Path(image_path).name
+            file_size = len(file_data)
             mime_type = self._get_mime_type(image_path)
 
-            # 使用 HTTP API 上传文件
-            # 步骤1: 创建文件对象（获取上传 URL）
+            print(f"  [Image] Size: {file_size / 1024:.1f} KB, Type: {mime_type}")
+
+            # 使用 Notion Files API 上传
+            # 步骤1: 获取上传 URL
             headers = {
                 "Authorization": f"Bearer {self.token}",
                 "Notion-Version": "2022-06-28",
                 "Content-Type": "application/json"
             }
 
-            # 首先尝试直接创建带 external URL 的 image block
-            # 由于 Notion 不提供简单的文件上传 API，我们使用 external URL 方式
-            # 需要将图片转为 base64 data URL
+            # 准备上传请求
+            import json
+            upload_url = f"https://api.notion.com/v1/files"
 
-            import base64
-            import mimetypes
+            # Notion 要求先创建文件对象获取上传 URL
+            # 但由于 Notion API 限制，我们使用简化的方法
+            # 尝试直接上传获取 S3 URL
 
-            # 读取图片并转为 base64
-            with open(image_path, 'rb') as f:
-                image_data = f.read()
-                base64_data = base64.b64encode(image_data).decode('utf-8')
+            # 方法：使用 POST /v1/files 创建文件并获取上传 URL
+            create_response = httpx.post(
+                upload_url,
+                headers=headers,
+                json={
+                    "type": "file",
+                    "file": {
+                        "name": Path(image_path).name,
+                        "type": mime_type
+                    },
+                    "parent": {
+                        "type": "page_id",
+                        "page_id": self.database_id  # 临时使用数据库 ID
+                    }
+                },
+                timeout=30.0
+            )
 
-            # 生成 data URL
-            data_url = f"data:{mime_type};base64,{base64_data}"
+            if create_response.status_code != 200:
+                # 如果失败，使用备用方案：生成占位符
+                print(f"  [Warning] Could not get upload URL: HTTP {create_response.status_code}")
+                return None
 
-            # Notion 支持 data URL 作为 external 图片
-            print(f"  [Image] Converted to data URL ({len(base64_data)} chars)")
-            return data_url
+            upload_data = create_response.json()
+
+            # 检查是否有上传 URL
+            if "file" in upload_data and "url" in upload_data["file"]:
+                # 直接返回 URL
+                file_url = upload_data["file"]["url"]
+                print(f"  [Image] Upload successful: {file_url[:50]}...")
+                return file_url
+
+            # 如果返回了上传 URL，需要上传文件到 S3
+            if "file" in upload_data and "upload_url" in upload_data["file"]:
+                s3_upload_url = upload_data["file"]["upload_url"]
+
+                # 步骤2: 上传文件到 S3
+                s3_headers = {
+                    "Content-Type": mime_type
+                }
+
+                s3_response = httpx.put(
+                    s3_upload_url,
+                    headers=s3_headers,
+                    content=file_data,
+                    timeout=60.0
+                )
+
+                if s3_response.status_code == 200:
+                    # 步骤3: 获取最终文件 URL
+                    file_url = upload_data["file"]["url"]
+                    print(f"  [Image] Upload successful: {file_url[:50]}...")
+                    return file_url
+                else:
+                    print(f"  [Error] S3 upload failed: HTTP {s3_response.status_code}")
+                    return None
+
+            print(f"  [Warning] No upload URL in response")
+            return None
 
         except Exception as e:
-            print(f"  [Error] Failed to upload image: {e}")
+            print(f"  [Error] Failed to upload image: {type(e).__name__}: {str(e)[:100]}")
             return None
 
     def _get_mime_type(self, file_path: str) -> str:
