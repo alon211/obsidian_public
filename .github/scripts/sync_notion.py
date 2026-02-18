@@ -37,6 +37,7 @@ class ObsidianToNotionSync:
 
     def __init__(self, token: str, database_id: str, vault_path: str):
         self.notion = Client(auth=token)
+        self.token = token  # 保存 token 用于 HTTP API
         self.database_id = database_id
         self.vault_path = Path(vault_path)
 
@@ -325,7 +326,7 @@ class ObsidianToNotionSync:
         try:
             print(f"  [Debug] Using HTTP API directly")
             headers = {
-                "Authorization": f"Bearer {self.notion.auth}",
+                "Authorization": f"Bearer {self.token}",
                 "Notion-Version": "2022-06-28",
                 "Content-Type": "application/json"
             }
@@ -536,7 +537,7 @@ class ObsidianToNotionSync:
         # 诊断：使用 HTTP API 打印数据库结构
         try:
             headers = {
-                "Authorization": f"Bearer {self.notion.auth}",
+                "Authorization": f"Bearer {self.token}",
                 "Notion-Version": "2022-06-28",
                 "Content-Type": "application/json"
             }
