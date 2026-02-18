@@ -288,26 +288,37 @@ class ObsidianToNotionSync:
             页面 ID，如果未找到则返回 None
         """
         try:
+            print(f"  [Debug] Querying database for file_id: {file_id}")
+            # 使用正确的 API 调用方式
             response = self.notion.databases.query(
-                database_id=database_id,
-                filter={
-                    "property": "file_id",
-                    "rich_text": {
-                        "equals": file_id
+                **{
+                    "database_id": database_id,
+                    "filter": {
+                        "property": "file_id",
+                        "rich_text": {
+                            "equals": file_id
+                        }
                     }
                 }
             )
             results = response.get('results', [])
+            print(f"  [Debug] Found {len(results)} pages with file_id")
 
             if results:
-                return results[0]['id']
+                page_id = results[0]['id']
+                print(f"  [Debug] Existing page ID: {page_id}")
+                return page_id
+        except AttributeError as e:
+            print(f"  [Error] API method not found: {e}")
+            print(f"  [Info] This might be a notion-client version issue")
         except Exception as e:
+            error_str = str(e)
             # 如果 file_id 属性不存在，会报错，这里捕获并返回 None
-            if "property does not exist" in str(e) or "Cannot query" in str(e):
-                print(f"  [Warning] 'file_id' property not found in database")
-                print(f"  [Info] Please add a 'file_id' property (type: rich_text) to your database")
+            if "property does not exist" in error_str or "Cannot query" in error_str or "filter" in error_str:
+                print(f"  [Warning] 'file_id' property not found or not queryable")
+                print(f"  [Info] Please check the 'file_id' property in your database")
             else:
-                print(f"  [Error] Finding page: {e}")
+                print(f"  [Error] Finding page: {type(e).__name__}: {e}")
         return None
 
     def clear_page_blocks(self, page_id: str) -> bool:
