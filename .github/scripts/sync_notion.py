@@ -24,6 +24,12 @@ import hashlib
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 
+# Windows UTF-8 encoding fix for Chinese and emoji display
+if sys.platform == 'win32':
+    import io
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
+
 try:
     from notion_client import Client, APIResponseError
     import httpx
@@ -476,20 +482,21 @@ class ObsidianToNotionSync:
 
                 # 收集所有内联图片的位置
                 all_matches = []
-                for match_type, match in [(m[0], m) for m in re.finditer(r'(!\[[^\]]+\]\]|!\[.*?\]\(.*?\))', line)]:
-                    all_matches.append((match.start(), match.end(), match_type, match))
+                for match in re.finditer(r'!\[\[.*?\]\]|!\[.*?\]\(.*?\)', line):
+                    match_text = match.group(0)
+                    all_matches.append((match.start(), match.end(), match_text))
 
                 if all_matches:
                     # 处理每个图片和其前后的文本
-                    for start, end, match_type, match in sorted(all_matches):
+                    for start, end, match_text in sorted(all_matches):
                         # 添加前面的文本部分
                         if start > last_end:
                             text_parts.append(line[last_end:start])
 
                         # 处理图片
-                        if match_type.startswith('![['):
+                        if match_text.startswith('![['):
                             # Obsidian wiki-link: ![[path]]
-                            image_name = match.group(2) if match_type == '![[' else match.group(1)
+                            image_name = match_text[3:-2]  # 去掉 ![[ 和 ]]
                             print(f"  [Debug] Processing inline Obsidian image: {image_name}")
                             image_path = self.find_image_path(markdown_dir, image_name)
                             if image_path:
@@ -520,34 +527,37 @@ class ObsidianToNotionSync:
                                 })
                         else:
                             # Markdown 图片: ![alt](path)
-                            alt_text = match.group(2) if match_type == '![](' else match.group(1)
-                            image_path = match.group(3) if match_type == '![](' else match.group(2)
-                            print(f"  [Debug] Processing inline Markdown image: ![{alt_text}]({image_path})")
-                            full_image_path = self._resolve_image_path(markdown_dir, image_path)
-                            if full_image_path and Path(full_image_path).exists():
-                                image_url = self.upload_image_to_notion(full_image_path)
-                                if image_url:
-                                    blocks.append({
-                                        "type": "image",
-                                        "image": {
-                                            "type": "external",
-                                            "external": {"url": image_url}
-                                        }
-                                    })
+                            # 从 ![alt](path) 中提取 alt 和 path
+                            inner = match_text[2:-1]  # 去掉 ![ 和 ]
+                            if '](' in inner:
+                                alt_text, image_path = inner.split('](', 1)
+                                image_path = image_path.rstrip(')')
+                                print(f"  [Debug] Processing inline Markdown image: ![{alt_text}]({image_path})")
+                                full_image_path = self._resolve_image_path(markdown_dir, image_path)
+                                if full_image_path and Path(full_image_path).exists():
+                                    image_url = self.upload_image_to_notion(full_image_path)
+                                    if image_url:
+                                        blocks.append({
+                                            "type": "image",
+                                            "image": {
+                                                "type": "external",
+                                                "external": {"url": image_url}
+                                            }
+                                        })
+                                    else:
+                                        blocks.append({
+                                            "type": "paragraph",
+                                            "paragraph": {
+                                                "rich_text": [{"type": "text", "text": {"content": f"[📷 {alt_text or Path(full_image_path).name}]"}}]
+                                            }
+                                        })
                                 else:
                                     blocks.append({
                                         "type": "paragraph",
                                         "paragraph": {
-                                            "rich_text": [{"type": "text", "text": {"content": f"[📷 {alt_text or Path(full_image_path).name}]"}}]
+                                            "rich_text": [{"type": "text", "text": {"content": f"[⚠️ {image_path}]"}}]
                                         }
                                     })
-                            else:
-                                blocks.append({
-                                    "type": "paragraph",
-                                    "paragraph": {
-                                        "rich_text": [{"type": "text", "text": {"content": f"[⚠️ {image_path}]"}}]
-                                    }
-                                })
 
                         last_end = end
 
