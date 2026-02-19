@@ -17,7 +17,7 @@ Features:
 - Windows UTF-8 encoding support for Chinese characters and emojis
 
 Requirements:
-pip install notion-client>=2.2.1,<3.0.0 markdown2 httpx
+pip install notion-client>=2.2.1,<3.0.0 httpx
 
 Notion Database Setup:
 1. Create a database in Notion
@@ -52,6 +52,18 @@ try:
 except ImportError:
     print("Error: notion-client not installed. Run: pip install notion-client")
     sys.exit(1)
+
+
+# Constants
+NOTION_API_VERSION = "2022-06-28"
+HTTP_TIMEOUT_SECONDS = 30.0
+MAX_NOTION_HEADING_LEVEL = 3
+FILE_ID_HASH_LENGTH = 16
+BLOCK_BATCH_SIZE = 100
+
+# Default GitHub repository settings
+DEFAULT_GITHUB_REPO = "alon211/obsidian_public"
+DEFAULT_GITHUB_BRANCH = "main"
 
 
 class ObsidianToNotionSync:
@@ -92,8 +104,8 @@ class ObsidianToNotionSync:
         # 转换为正斜杠（跨平台一致性）
         path_str = str(relative_path).replace('\\', '/')
 
-        # 生成 SHA256 hash 并取前 16 位
-        file_id = hashlib.sha256(path_str.encode('utf-8')).hexdigest()[:16]
+        # 生成 SHA256 hash 并取前 FILE_ID_HASH_LENGTH 位
+        file_id = hashlib.sha256(path_str.encode('utf-8')).hexdigest()[:FILE_ID_HASH_LENGTH]
 
         return file_id
 
@@ -152,8 +164,8 @@ class ObsidianToNotionSync:
                 print(f"    [Image] Using filename only: {rel_path}")
 
             # 获取 GitHub 仓库信息（从环境变量或默认值）
-            github_repo = os.environ.get('GITHUB_REPO', 'alon211/obsidian_public')
-            github_branch = os.environ.get('GITHUB_BRANCH', 'main')
+            github_repo = os.environ.get('GITHUB_REPO', DEFAULT_GITHUB_REPO)
+            github_branch = os.environ.get('GITHUB_BRANCH', DEFAULT_GITHUB_BRANCH)
 
             # 转换为 GitHub Raw URL
             # 将反斜杠转换为正斜杠
@@ -281,35 +293,6 @@ class ObsidianToNotionSync:
 
         return None
 
-    def _process_inline_images(self, line: str, markdown_dir: Path) -> str:
-        """处理段落中的内联图片
-
-        将 ![](path) 或 ![[path]] 替换为占位符或处理
-        注意：Notion 不支持真正的内联图片，所以这里用占位符
-        """
-        # 处理 Obsidian wiki-link 内联图片 ![[path]]
-        def replace_obsidian_image(match):
-            image_name = match.group(1)
-            image_path = self.find_image_path(markdown_dir, image_name)
-            if image_path:
-                return f"[📷 {image_name}]"
-            return f"[⚠️ 图片: {image_name}]"
-
-        line = re.sub(r'!\[\[(.*?)\]\]', replace_obsidian_image, line)
-
-        # 处理标准 Markdown 内联图片 ![alt](path)
-        def replace_md_image(match):
-            alt_text = match.group(1)
-            image_path = match.group(2)
-            full_path = self._resolve_image_path(markdown_dir, image_path)
-            if full_path and Path(full_path).exists():
-                return f"[📷 {alt_text or Path(full_path).name}]"
-            return f"[⚠️ 图片: {alt_text or image_path}]"
-
-        line = re.sub(r'!\[(.*?)\]\((.*?)\)', replace_md_image, line)
-
-        return line
-
     def convert_obsidian_to_notion_blocks(self, markdown_content: str, markdown_dir: Path) -> List[Dict[str, Any]]:
         """将 Obsidian Markdown 转换为 Notion blocks
 
@@ -346,7 +329,7 @@ class ObsidianToNotionSync:
             # 处理标题
             if line.startswith('#'):
                 level = len(line) - len(line.lstrip('#'))
-                level = min(level, 3)  # Notion 只支持 h1-h3
+                level = min(level, MAX_NOTION_HEADING_LEVEL)  # Notion 只支持 h1-h3
                 content = line.lstrip('#').strip()
                 block_type = f"heading_{level}"
                 blocks.append({
@@ -550,7 +533,7 @@ class ObsidianToNotionSync:
             print(f"  [Debug] Using HTTP API directly")
             headers = {
                 "Authorization": f"Bearer {self.token}",
-                "Notion-Version": "2022-06-28",
+                "Notion-Version": NOTION_API_VERSION,
                 "Content-Type": "application/json"
             }
 
@@ -567,7 +550,7 @@ class ObsidianToNotionSync:
             print(f"  [Debug] POST to {url}")
             print(f"  [Debug] Filter: property='file_id', equals='{file_id}'")
 
-            response = httpx.post(url, headers=headers, json=payload, timeout=30.0)
+            response = httpx.post(url, headers=headers, json=payload, timeout=HTTP_TIMEOUT_SECONDS)
 
             print(f"  [Debug] Response status: {response.status_code}")
 
@@ -761,11 +744,11 @@ class ObsidianToNotionSync:
         try:
             headers = {
                 "Authorization": f"Bearer {self.token}",
-                "Notion-Version": "2022-06-28",
+                "Notion-Version": NOTION_API_VERSION,
                 "Content-Type": "application/json"
             }
             url = f"https://api.notion.com/v1/databases/{self.database_id}"
-            response = httpx.get(url, headers=headers, timeout=30.0)
+            response = httpx.get(url, headers=headers, timeout=HTTP_TIMEOUT_SECONDS)
 
             if response.status_code == 200:
                 db = response.json()
