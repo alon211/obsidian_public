@@ -1,3 +1,6 @@
 .obsidian/workspace.json
 .obsidian/workspace-mobile.json
 .obsidian/plugins/.worktrees/
+# Obsidian plugin data (may contain API tokens)
+.obsidian/plugins/obsidian-to-notion/data.json
+.obsidian/plugins/*/data.json
