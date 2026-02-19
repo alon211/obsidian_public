@@ -2,7 +2,7 @@ name: Sync to Notion
 
 on:
   push:
-    branches: [main]
+    branches: [main, fix/**, test/**, '**']  # main + fix/test 前缀的分支
   workflow_dispatch:  # 允许手动触发
 
 jobs:
@@ -31,7 +31,7 @@ jobs:
           NOTION_DATABASE_ID: ${{ secrets.NOTION_DATABASE_ID }}
           GITHUB_WORKSPACE: ${{ github.workspace }}
           GITHUB_REPO: alon211/obsidian_public
-          GITHUB_BRANCH: main
+          GITHUB_BRANCH: ${{ github.ref_name }}
         run: |
           echo "GITHUB_WORKSPACE=$GITHUB_WORKSPACE"
           echo "NOTION_TOKEN length: ${#NOTION_TOKEN}"
