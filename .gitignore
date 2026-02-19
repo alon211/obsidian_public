@@ -4,3 +4,6 @@
 # Obsidian plugin data (may contain API tokens)
 .obsidian/plugins/obsidian-to-notion/data.json
 .obsidian/plugins/*/data.json
+# Claude settings (may contain API tokens)
+.claude/settings.local.json
+.claude/settings.json
