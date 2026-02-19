@@ -2,19 +2,35 @@
 """
 Sync Obsidian markdown files to Notion database via GitHub Actions
 
+Version: 1.0.0
+Author: Claude (with user collaboration)
+Date: 2026-02-19
+
 Features:
 - Uses unique file ID (SHA256 of relative path) for reliable page matching
-- Converts Obsidian wiki-link syntax [[image]] to Notion image blocks
+- Supports both Markdown ![](path) and Obsidian ![[path]] image syntax
+- Handles inline images (images within text lines)
+- Converts images to GitHub Raw URLs for reliable Notion display
 - Handles YAML frontmatter
 - Supports headings, lists, code blocks, quotes, paragraphs
 - Creates new pages or updates existing ones based on file_id
+- Windows UTF-8 encoding support for Chinese characters and emojis
 
 Requirements:
-pip install notion-client markdown2
+pip install notion-client>=2.2.1,<3.0.0 markdown2 httpx
 
 Notion Database Setup:
-1. Add a "file_id" property (type: rich_text) to your database
-2. The script will use this ID to match and update pages
+1. Create a database in Notion
+2. Add a "file_id" property (type: rich_text) to your database
+3. Add a "Name" property (type: title) - this is the page title
+4. Create a Notion Integration at https://www.notion.so/my-integrations
+5. Add the Integration to your database (click "..." > "Add connections")
+6. Copy the Integration token (starts with "ntn_")
+7. Copy the Database ID from the database URL
+
+GitHub Actions Setup:
+1. Add NOTION_TOKEN and NOTION_DATABASE_ID as repository secrets
+2. Push changes to trigger automatic sync
 """
 
 import os
