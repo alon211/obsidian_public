@@ -21,7 +21,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install requests markdown2
+          pip install httpx markdown2
           pip install "notion-client>=2.2.1,<3.0.0"
           pip show notion-client | grep Version
 
