@@ -498,9 +498,10 @@ class ObsidianToNotionSync:
                             # Obsidian wiki-link: ![[path]]
                             image_name = match_text[3:-2]  # 去掉 ![[ 和 ]]
                             print(f"  [Debug] Processing inline Obsidian image: {image_name}")
-                            image_path = self.find_image_path(markdown_dir, image_name)
-                            if image_path:
-                                image_url = self.upload_image_to_notion(image_path)
+                            # 使用 _resolve_image_path 以支持带路径的图片引用
+                            full_image_path = self._resolve_image_path(markdown_dir, image_name)
+                            if full_image_path and Path(full_image_path).exists():
+                                image_url = self.upload_image_to_notion(full_image_path)
                                 if image_url:
                                     blocks.append({
                                         "type": "image",
