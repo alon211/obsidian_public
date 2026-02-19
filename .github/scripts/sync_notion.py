@@ -246,7 +246,7 @@ class ObsidianToNotionSync:
 
             # URL 编码中文字符 - 使用 safe 参数避免编码斜杠
             from urllib.parse import quote
-            rel_path_encoded = quote(rel_path_str.encode('utf-8'), safe='/')
+            rel_path_encoded = quote(rel_path_str, safe='/')
 
             github_raw_url = f"https://raw.githubusercontent.com/{github_repo}/{github_branch}/{rel_path_encoded}"
 
