@@ -82,6 +82,79 @@ class ObsidianToNotionSync:
             print(f"[Debug] Databases type: {type(self.notion.databases)}")
             print(f"[Debug] Has query attr: {hasattr(self.notion.databases, 'query')}")
 
+        # GitHub 仓库配置（从环境变量获取，支持默认值）
+        self.github_repo = os.environ.get('GITHUB_REPO', DEFAULT_GITHUB_REPO)
+        # 根据 vault_path 计算对应的 GitHub 分支
+        # 如果用户明确设置了 GITHUB_BRANCH，则使用该值，否则自动计算
+        manual_branch = os.environ.get('GITHUB_BRANCH')
+        if manual_branch:
+            self.github_branch = manual_branch
+            print(f"[Debug] Using manual branch: {manual_branch}")
+        else:
+            self.github_branch = self._calculate_branch_for_vault()
+
+    def _calculate_branch_for_vault(self) -> str:
+        """根据 vault_path 计算对应的 GitHub 分支名
+
+        规则：
+        - 默认 vault (obsidian_public) → main 分支
+        - 其他 vault → 根据 path 生成唯一分支名
+
+        Returns:
+            分支名
+        """
+        # 先将路径转换为正斜杠格式
+        vault_str = str(self.vault_path).replace('\\', '/').lower()
+
+        # 默认 vault 使用 main 分支
+        if 'obsidian_public' in vault_str.split('/'):
+            return 'main'
+
+        # 移除常见的根路径前缀（使用正斜杠格式）
+        prefixes_to_remove = [
+            'c:/users/',
+            '/mnt/c/users/',
+            'c:/users/zhang/documents/',
+            'users/',
+            'documents/',
+            'onedrive/',
+            'obsidian/',
+            'obsidian vault/',
+        ]
+
+        branch_name = vault_str
+        for prefix in prefixes_to_remove:
+            if prefix in branch_name:
+                branch_name = branch_name.replace(prefix, '', 1)
+
+        # 移除驱动器根 (c:/, d:/)
+        if len(branch_name) > 2 and branch_name[1] == ':':
+            branch_name = branch_name[3:]  # 跳过 "c:/" 或 "d:/"
+
+        # 转换为有效的 Git 分支名
+        # 替换特殊字符为连字符
+        import re
+        branch_name = re.sub(r'[^\w\-]', '-', branch_name)
+        branch_name = branch_name.strip('-')
+
+        # 移除连续的连字符
+        branch_name = re.sub(r'-+', '-', branch_name)
+
+        # 限制长度（GitHub 分支名限制）
+        if len(branch_name) > 240:
+            branch_name = branch_name[:240]
+
+        # 如果分支名为空，使用默认分支
+        if not branch_name:
+            branch_name = 'main'
+
+        # 调试输出
+        if branch_name != 'main':
+            print(f"[Debug] Using branch '{branch_name}' for vault")
+            print(f"[Debug] Original path: {vault_str}")
+
+        return branch_name
+
     def generate_file_id(self, file_path: Path) -> str:
         """为文件生成唯一 ID
 
@@ -163,9 +236,9 @@ class ObsidianToNotionSync:
                 rel_path = Path(image_path).name
                 print(f"    [Image] Using filename only: {rel_path}")
 
-            # 获取 GitHub 仓库信息（从环境变量或默认值）
-            github_repo = os.environ.get('GITHUB_REPO', DEFAULT_GITHUB_REPO)
-            github_branch = os.environ.get('GITHUB_BRANCH', DEFAULT_GITHUB_BRANCH)
+            # 使用实例变量中的 GitHub 仓库配置
+            github_repo = self.github_repo
+            github_branch = self.github_branch
 
             # 转换为 GitHub Raw URL
             # 将反斜杠转换为正斜杠
