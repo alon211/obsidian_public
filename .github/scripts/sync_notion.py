@@ -175,6 +175,45 @@ class ObsidianToNotionSync:
             traceback.print_exc()
             return None
 
+    def _process_image_block(self, image_path: str, markdown_dir: Path, alt_text: str = None) -> Dict[str, Any]:
+        """处理单个图片并返回适当的 Notion 块
+
+        Args:
+            image_path: 图片路径（相对于 markdown 文件）
+            markdown_dir: markdown 文件所在目录
+            alt_text: 替代文本（可选）
+
+        Returns:
+            Notion 块字典（图片块或占位符段落块）
+        """
+        # 解析图片完整路径
+        full_image_path = self._resolve_image_path(markdown_dir, image_path)
+
+        if full_image_path and Path(full_image_path).exists():
+            # 尝试上传图片到 Notion
+            image_url = self.upload_image_to_notion(full_image_path)
+            if image_url:
+                return {
+                    "type": "image",
+                    "image": {
+                        "type": "external",
+                        "external": {"url": image_url}
+                    }
+                }
+            else:
+                # 上传失败，使用占位符
+                placeholder_text = f"[📷 {alt_text or Path(full_image_path).name}]"
+        else:
+            # 图片文件不存在，使用警告占位符
+            placeholder_text = f"[⚠️ {image_path}]"
+
+        return {
+            "type": "paragraph",
+            "paragraph": {
+                "rich_text": [{"type": "text", "text": {"content": placeholder_text}}]
+            }
+        }
+
     def _get_mime_type(self, file_path: str) -> str:
         """获取文件的 MIME 类型"""
         ext = Path(file_path).suffix.lower()
@@ -382,46 +421,10 @@ class ObsidianToNotionSync:
             if obsidian_image_match:
                 image_name = obsidian_image_match.group(1)
                 print(f"  [Debug] Processing Obsidian image: {image_name}")
-                image_path = self.find_image_path(markdown_dir, image_name)
-                if image_path:
-                    image_url = self.upload_image_to_notion(image_path)
-                    if image_url:
-                        blocks.append({
-                            "type": "image",
-                            "image": {
-                                "type": "external",
-                                "external": {"url": image_url}
-                            }
-                        })
-                        print(f"  [Debug] Image block added")
-                        i += 1
-                        continue
-                    else:
-                        # 占位符: 图片未上传
-                        blocks.append({
-                            "type": "paragraph",
-                            "paragraph": {
-                                "rich_text": [{
-                                    "type": "text",
-                                    "text": {"content": f"[📷 图片: {image_name}]"}
-                                }]
-                            }
-                        })
-                        i += 1
-                        continue
-                else:
-                    print(f"  [Warning] Image not found: {image_name}")
-                    blocks.append({
-                        "type": "paragraph",
-                        "paragraph": {
-                            "rich_text": [{
-                                "type": "text",
-                                "text": {"content": f"[⚠️ 图片未找到: {image_name}]"}
-                            }]
-                        }
-                    })
-                    i += 1
-                    continue
+                blocks.append(self._process_image_block(image_name, markdown_dir))
+                print(f"  [Debug] Image block added")
+                i += 1
+                continue
 
             # 格式2: ![alt](path) 或 !(path) (标准 Markdown)
             md_image_match = re.match(r'^!\[(.*?)\]\((.*?)\)$', line)
@@ -429,68 +432,20 @@ class ObsidianToNotionSync:
                 alt_text = md_image_match.group(1)
                 image_path = md_image_match.group(2)
                 print(f"  [Debug] Processing Markdown image: ![{alt_text}]({image_path})")
-
-                # 解析图片路径
-                full_image_path = self._resolve_image_path(markdown_dir, image_path)
-
-                if full_image_path and Path(full_image_path).exists():
-                    image_url = self.upload_image_to_notion(full_image_path)
-                    if image_url:
-                        blocks.append({
-                            "type": "image",
-                            "image": {
-                                "type": "external",
-                                "external": {"url": image_url}
-                            }
-                        })
-                        print(f"  [Debug] Image block added")
-                        i += 1
-                        continue
-                    else:
-                        # 占位符: 图片未上传
-                        blocks.append({
-                            "type": "paragraph",
-                            "paragraph": {
-                                "rich_text": [{
-                                    "type": "text",
-                                    "text": {"content": f"[📷 图片: {Path(full_image_path).name if full_image_path else image_path}]"}
-                                }]
-                            }
-                        })
-                        i += 1
-                        continue
-                else:
-                    print(f"  [Warning] Image not found: {image_path}")
-                    blocks.append({
-                        "type": "paragraph",
-                        "paragraph": {
-                            "rich_text": [{
-                                "type": "text",
-                                "text": {"content": f"[⚠️ 图片未找到: {image_path}]"}
-                            }]
-                        }
-                    })
-                    i += 1
-                    continue
+                blocks.append(self._process_image_block(image_path, markdown_dir, alt_text))
+                print(f"  [Debug] Image block added")
+                i += 1
+                continue
 
             # 处理内联图片 - 先提取所有内联图片，然后再处理文本
-            inline_images = []
-
-            # 提取标准 Markdown 内联图片 ![alt](path)
-            md_inline_images = list(re.finditer(r'!\[(.*?)\]\((.*?)\)', line))
-            for match in md_inline_images:
-                alt_text = match.group(1)
-                image_path = match.group(2)
-                inline_images.append(('markdown', image_path, alt_text))
-
-            # 提取 Obsidian wiki-link 内联图片 ![[path]]
-            obsidian_inline_images = list(re.finditer(r'!\[\[(.*?)\]\]', line))
-            for match in obsidian_inline_images:
-                image_name = match.group(1)
-                inline_images.append(('obsidian', image_name, None))
+            # 收集所有内联图片的位置
+            all_matches = []
+            for match in re.finditer(r'!\[\[.*?\]\]|!\[.*?\]\(.*?\)', line):
+                match_text = match.group(0)
+                all_matches.append((match.start(), match.end(), match_text))
 
             # 如果有内联图片，需要特殊处理
-            if inline_images:
+            if all_matches:
                 # 将文本行拆分为文本和图片的混合 blocks
                 # 先创建一个用于存储文本部分的列表
                 text_parts = []
@@ -509,72 +464,20 @@ class ObsidianToNotionSync:
                         if start > last_end:
                             text_parts.append(line[last_end:start])
 
-                        # 处理图片
+                        # 处理图片 - 使用统一的辅助方法
                         if match_text.startswith('![['):
                             # Obsidian wiki-link: ![[path]]
                             image_name = match_text[3:-2]  # 去掉 ![[ 和 ]]
                             print(f"  [Debug] Processing inline Obsidian image: {image_name}")
-                            # 使用 _resolve_image_path 以支持带路径的图片引用
-                            full_image_path = self._resolve_image_path(markdown_dir, image_name)
-                            if full_image_path and Path(full_image_path).exists():
-                                image_url = self.upload_image_to_notion(full_image_path)
-                                if image_url:
-                                    blocks.append({
-                                        "type": "image",
-                                        "image": {
-                                            "type": "external",
-                                            "external": {"url": image_url}
-                                        }
-                                    })
-                                else:
-                                    # 图片上传失败，添加占位符
-                                    blocks.append({
-                                        "type": "paragraph",
-                                        "paragraph": {
-                                            "rich_text": [{"type": "text", "text": {"content": f"[📷 {image_name}]"}}]
-                                        }
-                                    })
-                            else:
-                                # 图片未找到
-                                blocks.append({
-                                    "type": "paragraph",
-                                    "paragraph": {
-                                        "rich_text": [{"type": "text", "text": {"content": f"[⚠️ {image_name}]"}}]
-                                    }
-                                })
+                            blocks.append(self._process_image_block(image_name, markdown_dir))
                         else:
                             # Markdown 图片: ![alt](path)
-                            # 从 ![alt](path) 中提取 alt 和 path
                             inner = match_text[2:-1]  # 去掉 ![ 和 ]
                             if '](' in inner:
                                 alt_text, image_path = inner.split('](', 1)
                                 image_path = image_path.rstrip(')')
                                 print(f"  [Debug] Processing inline Markdown image: ![{alt_text}]({image_path})")
-                                full_image_path = self._resolve_image_path(markdown_dir, image_path)
-                                if full_image_path and Path(full_image_path).exists():
-                                    image_url = self.upload_image_to_notion(full_image_path)
-                                    if image_url:
-                                        blocks.append({
-                                            "type": "image",
-                                            "image": {
-                                                "type": "external",
-                                                "external": {"url": image_url}
-                                            }
-                                        })
-                                    else:
-                                        blocks.append({
-                                            "type": "paragraph",
-                                            "paragraph": {
-                                                "rich_text": [{"type": "text", "text": {"content": f"[📷 {alt_text or Path(full_image_path).name}]"}}]
-                                            }
-                                        })
-                                else:
-                                    blocks.append({
-                                        "type": "paragraph",
-                                        "paragraph": {
-                                            "rich_text": [{"type": "text", "text": {"content": f"[⚠️ {image_path}]"}}]
-                                        }
-                                    })
+                                blocks.append(self._process_image_block(image_path, markdown_dir, alt_text))
 
                         last_end = end
 
